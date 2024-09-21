@@ -1,4 +1,4 @@
-# Fluence SLA Protocol
+# Fluence dSLA Protocol
 
 bb, 09/12/2024, WIP
 
@@ -122,7 +122,7 @@ At time $t$, $C$ reports a defect $d_t$ to $SMD$ and $SP$ either accepts or reje
 
 2. No Defect Adjustment
     * The cumulative defect count remains unchanged, such that: 
-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; $D_t = D_{t-1}$
+\[D_t = D_{t-1} \]
 
 3. Penalty Calculation
     * Provider revenue is 0
@@ -158,7 +158,7 @@ The decentralized, trustless Fluence marketplace inherently allow providers and 
 1. Deal Termination By Customer
 
 * The deal is terminated by the customer before the end of the service agreement and customer cost is the proportional value of the deal, $V_D$ minus any SLA penlaty credits, if applicable such that:
-&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;Customer cost is $max(-(t_e/t_d*V_d) + P_SLA, 0)$
+\[ \text{Customer cost is } \max(-(t_e/t_d*V_d) + P_SLA, 0) \]
 
 2. Deal Termination By Provider
 
@@ -211,15 +211,124 @@ Both counters, individually and combined, provide reputation signals beyond curr
 
 ### Summary
 
-We relied on incentive compatibility and some mechanism design to restructure an SLA game with a propensity to cheating by both players. By introducing  penalty models for both defect reporting and early deal termination, and supplementing tem with reputation signals, we believe incentive compatibility is highly likely. That is, we expect providers and customers to cooperate and, in the case of providers, strive for the delivery of the promised QoS.
+We focused on incentive compatibility and mechanism design to restructure a Service Level Agreement (SLA) framework commonly used in centralized, trusted cloud service environments, adapting it for decentralized, trustless settings. We introduced penalty models for defect reporting and early deal termination, further enhancing them with reputation signals. We believe this approach will achieve high incentive compatibility among providers and customers of the decentralized, trustless Fluence cloudless compute marketplace. This revised, decentralized SLA (dSLA) framework, is expected to encourage cooperation, eliminate cheating, and motivate providers to deliver the promised Quality of Service (QoS).
 
-## Implementation
+## Implementing The dSLA Protocol
 
-* Customer vs witness
+To implement the dSLA protocol in an Arbitrum rollup environment, it is essential to acknowledge that the block timestamp is reasonably reliable, despite the absence of a fixed block time. In this context, the sequencer's timestamp serves as the reference clock. Furthermore, we assume that Stylus operates as a fully functional, EVM-integrated WASM32-WASI runtime [], enabling compatibility with ed25519 and potentially BLS curves. And finally, we assume that the Fluence L2 gas costs are sufficiently negligible to not impeded dSLA reporting and processing requirements.
+
+Our primary concerns in implementing the dSLA protocol include the structure of the defect report, the defect reporting and reviewing processes and ensuing dSLA penalty model adjustments. Moreover, we assume that the initial dSLA implementation is limited to uptime and expressed in the "nines" tradition [].
+
+### dSLA Lifecycle  
+
+The dSLA protocol outlined above is mapped into a sequence of onchain transactions in Figure 1.
+
+Figure 1: Stylized SLA-Based Deal Flow
+
+```mermaid
+  sequenceDiagram
+
+  participant C as Customer
+  participant S as Provider
+  participant B as Blockchain
+
+  loop deal active
+    alt customer deal terminate
+      C ->> B: terminate deal
+      B ->> B: terminate deal
+      B ->> B: determine and process payouts
+      B ->> B: update reputation counters
+    else provider deal terminate
+      S ->> B: terminate deal
+      B ->> B: terminate deal
+      B ->> B: determine and process payouts
+      B ->> B: update reputation counters
+    else report defect 
+      C ->> B: report defect
+      S ->> B: respond to report
+      alt accept report
+        B ->> B: update defect counter
+        B ->> B: update reputation counters
+      else reject report
+        B ->> B: terminate deal
+        B ->> B: determine and process payouts
+        B ->> B: update reputation counters
+      end
+    end
+  end
+```
+
+not enough ...
+
+### Quality Of Service Specification
+
+A provider's Quality of Service, e.g., the uptime of a VM, is typically quantified in terms of "nines" of expected uptime []. For instance, five nines, i.e., 99.999%, indicates a maximum allowable downtime of the covered service of at most 26 seconds per month [].
+
+In the context of SLAs, various uptime ranges and corresponding penalty coefficients are established. For example, a provider may commit to an uptime of 99.0% (two nines). Should the actual uptime fall  below this threshold but remain above, say, 98.5% uptime, the penalty may be 10% of the contract, aka deal, value. See Table 3 for a multi range example.
+
+Table 3: Illustrative Downtime Penalty Ranges
+
+| Uptime (%)          | < 95% | < 98.5% | < 99% |
+|---------------------|----- |-------|-------|
+| Downtime (hours)    | 22.24| 10.87 | 7.24  |
+| Penalty coefficient | 1.0  | 0.30  | 0.1   |
+| Penalty<br>Deal Value USD 10.00 | 10.0 | 3.0| 1.0|  
+
+The above approach maps in into a Rust interface as outlined in Figure 2:
+
+Figure 2: Stylized Provider QoS Interface
+
+```Rust
+
+struct QoSCommitment {
+    uptime: String, // nines
+    downtime_hours: f64,
+    penalty_coefficient: f64,
+}
+
+struct SLAHandler {
+  penalty_ranges: Vec<QoSCommitment>,
+}
+
+impl SLAHandler {
+  fn new(qos_ranges: Vec<QoSCommitment>) -> Self {
+      Self {
+          penalty_ranges: qos_ranges
+      }
+  }
+
+  fn calculate_penalty(&self, reported_downtime: f64, deal_value: f64) -> f64 {
+        self.penalty_ranges
+            .iter()
+            .find(|range| reported_downtime > range.downtime_hours) // Find the first applicable range
+            .map(|range| range.penalty_coefficient.min(1.0) * deal_value) // Calculate penalty, capping coefficient at 1.0
+            .unwrap_or(0.0) // No penalty if uptime is above all ranges
+    }
+}
+```
 
 ### Creating Defect Reports
 
-* Cryptographic Commitment
+From a customers perspective, the defect reporting process is quite critical. 
+
+
+#### Cryptographic Commitments
+
+In order to be able to provide a scalable non-interactive, trustless SLA reporting and enforcement solution, defects $d_t$ are periodically reported by the customer $C$ for the deal to $SMD$.
+
+
+
+
+In order to prevent leaking of C's reported timestamp for reuse by other customers of SP, C submits a Pedersen Vector Commitment [],[] for the timestamp of the observed defect and a nonce of the request.
+
+Instead of a nonce, C submits a duration of the observed defect with a maximum duration of k seconds such that D_t = (t_0, t_1) where the maximum ... so for three consecutive pings at k second intervals: 
+(t_0, t_1) where t_1 - t_0 =5
+(t_1, t_2), where t2 - t_1 = 5
+(t_2, t_3) where t_3 - t_2 = 2, for example
+
+it is critical that note that for EVM-based blockchains, the final inclusion of transactions for a particular address, such as the C address, respects the nonce order. As long as the commitments, or raw timestamps are nonce'd properly and the blocks are finalized and any mis-ordering of commitments is an error attributable to C.
+
+
 
 
 
@@ -231,7 +340,8 @@ We relied on incentive compatibility and some mechanism design to restructure an
 
 [] Inspection game, http://www.maths.lse.ac.uk/personal/stengel/TEXTE/insp.pdf
 
-
-
+[] Abrbitrum time, https://docs.arbitrum.io/build-decentralized-apps/arbitrum-vs-ethereum/block-numbers-and-time
+[] Arbitrum Stylus, https://arbitrum.io/stylus
+[] Uptime calculator, https://uptime.is/
 
 
