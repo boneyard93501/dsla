@@ -1,6 +1,6 @@
 # Fluence dSLA Protocol
 
-bb, 09/12/2024, WIP
+bb, 09/22/2024, WIP
 
 ## Introduction
 
@@ -211,13 +211,13 @@ Both counters, individually and combined, provide reputation signals beyond curr
 
 ### Summary
 
-We focused on incentive compatibility and mechanism design to restructure a Service Level Agreement (SLA) framework commonly used in centralized, trusted cloud service environments, adapting it for decentralized, trustless settings. We introduced penalty models for defect reporting and early deal termination, further enhancing them with reputation signals. We believe this approach will achieve high incentive compatibility among providers and customers of the decentralized, trustless Fluence cloudless compute marketplace. This revised, decentralized SLA (dSLA) framework, is expected to encourage cooperation, eliminate cheating, and motivate providers to deliver the promised Quality of Service (QoS).
+Our work centers on incentive compatibility and mechanism design to adapt a Service Level Agreement (SLA) framework, traditionally employed in centralized, trusted cloud environments, for decentralized, trustless settings. We have developed penalty models for defect reporting and early deal termination, integrating reputation signals to enhance the framework. This approach aims to foster high incentive compatibility among providers and customers in the decentralized, trustless Fluence cloudless compute marketplace. The newly proposed decentralized SLA (dSLA) framework is expected to promote cooperation, deter dishonest behavior, and incentivize providers to deliver the promised Quality of Service (QoS).
 
 ## Implementing The dSLA Protocol
 
-To implement the dSLA protocol in an Arbitrum rollup environment, it is essential to acknowledge that the block timestamp is reasonably reliable, despite the absence of a fixed block time. In this context, the sequencer's timestamp serves as the reference clock. Furthermore, we assume that Stylus operates as a fully functional, EVM-integrated WASM32-WASI runtime [], enabling compatibility with ed25519 and potentially BLS curves. And finally, we assume that the Fluence L2 gas costs are sufficiently negligible to not impeded dSLA reporting and processing requirements.
+When implementing the dSLA protocol in an Arbitrum rollup environment, it is essential to acknowledge that the block timestamp is reasonably reliable.This is critical in the absence of a fixed block time as the sequencer's timestamp serves as the reference clock. Furthermore, we assume that Stylus operates as a fully functional, EVM-integrated WASM32-WASI runtime [], enabling compatibility with ed25519 and potentially BLS curves. ,Moreover we assume that the Fluence L2 gas costs are sufficiently low to not hinder dSLA reporting and processing requirements. And finally, we propose a DAO address as the recipient for value deltas between provider revenue and customer payments arising form the application of dSLA penalty models.
 
-Our primary concerns in implementing the dSLA protocol include the structure of the defect report, the defect reporting and reviewing processes and ensuing dSLA penalty model adjustments. Moreover, we assume that the initial dSLA implementation is limited to uptime and expressed in the "nines" tradition [].
+Our primary focus with respect to implementing the dSLA protocol include the structure of the defect report, the defect reporting and reviewing processes and ensuing dSLA penalty model adjustments. Moreover, we assume that the initial dSLA implementation is limited to uptime and expressed in the "nines" tradition [].
 
 ### dSLA Lifecycle  
 
@@ -258,8 +258,6 @@ Figure 1: Stylized SLA-Based Deal Flow
   end
 ```
 
-not enough ...
-
 ### Quality Of Service Specification
 
 A provider's Quality of Service, e.g., the uptime of a VM, is typically quantified in terms of "nines" of expected uptime []. For instance, five nines, i.e., 99.999%, indicates a maximum allowable downtime of the covered service of at most 26 seconds per month [].
@@ -276,13 +274,12 @@ Table 3: Illustrative Downtime Penalty Ranges
 
 The above approach maps in into a Rust interface as outlined in Figure 2:
 
-Figure 2: Stylized Provider QoS Interface
+Figure 2: Stylized QoS Interface
 
 ```Rust
-
 struct QoSCommitment {
-    uptime: String, // nines
-    downtime_hours: f64,
+    uptime_commitment: String, // nines
+    downtime_seconds: u64,
     penalty_coefficient: f64,
 }
 
@@ -297,51 +294,209 @@ impl SLAHandler {
       }
   }
 
-  fn calculate_penalty(&self, reported_downtime: f64, deal_value: f64) -> f64 {
+  fn calculate_penalty(&self, reported_downtime: u64, deal_value: f64) -> f64 {
         self.penalty_ranges
             .iter()
-            .find(|range| reported_downtime > range.downtime_hours) // Find the first applicable range
-            .map(|range| range.penalty_coefficient.min(1.0) * deal_value) // Calculate penalty, capping coefficient at 1.0
-            .unwrap_or(0.0) // No penalty if uptime is above all ranges
+            .find(|range| reported_downtime > range.downtime_hours)
+            .map(|range| range.penalty_coefficient.min(1.0) * deal_value) 
+            .unwrap_or(0.0)
     }
 }
+// src/qos.rs
 ```
 
-### Creating Defect Reports
+### Creating And Reviewing Defect Reports
 
-From a customers perspective, the defect reporting process is quite critical. 
+In our dSLA framework, the customer is the "witness" to potential defects, required to monitor service availability. If they experience downtime and seek compensation, they must submit a defect report onchain. Similarly, the provider needs to monitor each deal covered by an SLA to verify defect reports, which requires the provider to monitor the rented resources. Unless, the provider trusts the customer to report defects accurately and honestly. See Figure 2.
 
+Figure 2: Stylized Defect Report Processing
+
+```mermaid 
+  sequenceDiagram
+
+  participant C as Customer
+  participant B as Onchain Deal
+  participant P as Provider
+
+  loop while deal active
+    C ->> B: report defect
+    alt reject report
+      P ->> B: reject defect
+      B ->> B: exit deal
+    else no rejection
+      B ->> B: process defect
+    end
+  end
+```
+
+#### Defect Description And Presentation
+
+Under the dSLA, a customer may report defects with a signed transaction to the on-chain contract. Due to the cumulative nature of defects, on- and off-chain agents need to be able to aggregate reported defects, i.e., periods of service unavailability, for eventual comparison against the agreed upon threshold values. Hence, a customer defect report needs to at least include the following details:
+
+* Deal ID: The unique identifier for the service contract
+* Start Timestamp: The moment the defect was first detected
+* End Timestamp: The moment the last defect was detected
+
+Additional considerations must be given with respect to customer reporting frequency and provider response times as clear, continuous updating is not feasible. It is especially important that a customer reports unavailability reports throughout a service interruption period to give a provider ample time to respond to a report. It is highly undesirable for a customer to be able to submit a defect report of sufficient duration to be crossing one or more downtime thresholds at the very end of a deal, preventing the service provider to take corrective action or even respond.
+
+The actual maximum defect, or outage, duration per report needs to be limited by some parameter, which itself depends on the acceptable downtime for the deal period. That is, the parameter needs to be much smaller for a five nines versus a two nines QoS specification.
+
+For example, the customer may be limited to a maximum defect duration per report of, say, 180 seconds. If a defect persists beyond this limit, the customer must submit additonal reports each documenting up to 180 seconds of the defect's duration, in sequential order. This structured approach helps maintain accurate records while safeguarding against frivolous claims. Moreover, the start- and end-time of a report must fall within the a deal's (actual) duration.
+
+For a defect lasting, say, 440 seconds, a customer would submit three sequential defect reports, i.e., three separate transactions, to the onchain contract:
+
+* $(t1, t2) \text{ where }t2 - t1 = 180$
+* $(t2, t3) \text{ where }t3 - t2 = 180$
+* $(t3, t4) \text{ where }t4 - t3 = \ \ 80$
+
+Of course, these reports must **not** be batched but submitted individually as soon as possible, especially for a sequence-based blockchain like the Fluence marketplace. See Figure 3 for a stylized defect handler interface for both customers and on-chain (Stylus) contract.
+
+Figure 3: Stylized On/Off-Chain Defect Handler
+
+```Rust
+use serde::{Deserialize, Serialize};
+use bincode;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DefectReport {
+    deal_id: String,
+    start_timestamp: u64, 
+    end_timestamp: u64,   
+    report_id: u64, //nonce
+    is_rejected: bool,                
+}
+
+impl DefectReport {
+    fn new(deal_id: String, start_timestamp: u64, report_id: u64) -> Self {
+        Self {
+            deal_id,
+            start_timestamp,
+            end_timestamp:start_timestamp,
+            report_id,
+            is_rejected: false,              // Default to false
+        }
+    }
+
+    fn update_timestamp(&mut self, end_timestamp: u64) {
+        self.end_timestamp = end_timestamp;
+    }
+
+    fn reject(&mut self) {
+        self.is_rejected = true;
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).expect("Failed to serialize")
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        bincode::deserialize(bytes).expect("Failed to deserialize")
+    }
+}
+
+// src/defect.rs
+```
+
+#### Handling Penalties
+
+The penalty models and modalities are described in sufficient detail in the dSLA sections to guide implementation. However, due to reliance on existing marketplace dynamics and deal contracts, as well as the need for potential updates, a detailed implementation plan is not provided.
+
+It is important to note that the penalty models introduced may lead to non-zero-sum revenue/cost allocation scenarios. To address the issue of "ghost funds", we propose the creation of a DAO beneficiary account, which could be utilized to support protocol research. This account would serve as the designated recipient for unallocated revenue deltas, represented as:
+
+\[\text{Unallocated Revenue Delta} = |\text{Provider Revenue} - \text{Customer Cost}| \, \text{(in USDC)}\]
+
+Moreover, considerations should be given to the utilization of provider deal stakes for compensating stakers in the event that a provider incurs zero revenue penalties. For instance, the pro-rated net revenue from a terminated deal can be used to calculate staker revenue. However, this needs to be carefully modeled as the pressure of stakers losing (programmatically driven) compensation may be a larger driver for cooperation than the financial penalty. Regardless, a pro-rated allocation can be calculated as:
+
+\[\text{Staker Revenue} = {\text{Pro-Rated Net Revenue}}{\text{Total Stake}} \times \text{Staker's Revenue Portion}\]
+
+which still may be less, due to levied SLA penalties, than the staker reward proper.
+
+This approach also implies that providers commit an adequate stake to SLA-governed deals, ensuring that the stake meets or exceeds the maximum deal value multiplied by the sharing coefficient. Mathematically, this requirement can be expressed as:
+
+\[\text{Required Stake} \geq \text{Maximum Deal Value} \times \text{Sharing Coefficient}\]
 
 #### Cryptographic Commitments
 
-In order to be able to provide a scalable non-interactive, trustless SLA reporting and enforcement solution, defects $d_t$ are periodically reported by the customer $C$ for the deal to $SMD$.
+To date, the timestamp format provided by the customer has not been explicitly discussed, and examples have utilized raw timestamps. This approach may not be feasible, and implementing some form of encryption could be necessary.
+
+Encryption enhances data security and integrity, even when raw timestamps are stored on an immutable blockchain. First, it provides improved privacy and confidentiality, ensuring that only authorized parties can access the data. This is crucial for preventing "replay" attacks, where other customers sharing compute resources from the same server could potentially copy raw defect reports without authorization. Second, timestamp encryption can help ensure compliance with legal and regulatory requirements, such as GDPR.
+
+However, the use of encrypted timestamps introduces additional complexity in key management and decryption processes, complicating interactions with the smart contract. To alleviate such concerns, we propose to use a commitment scheme, such as the Pedersen Commitment [], which encrypts timestamps while allowing the calculation of timestamp deltas due to its inherent homomorphic properties. That is, a customer would have to create two commitments, one for the starting timestamp and one for the ending timestamp of the defect reporting period. Note that is is different than a vector commitment. See Figure 4.
 
 
+Figue 4: Stylized Pedersen Commitment Interface
 
+```Rust
 
-In order to prevent leaking of C's reported timestamp for reuse by other customers of SP, C submits a Pedersen Vector Commitment [],[] for the timestamp of the observed defect and a nonce of the request.
+// pedersen.rs
+```
 
-Instead of a nonce, C submits a duration of the observed defect with a maximum duration of k seconds such that D_t = (t_0, t_1) where the maximum ... so for three consecutive pings at k second intervals: 
-(t_0, t_1) where t_1 - t_0 =5
-(t_1, t_2), where t2 - t_1 = 5
-(t_2, t_3) where t_3 - t_2 = 2, for example
+This approach limits the customer's reveal to the first timestamp of the initial commitment and the last timestamp of the final commitment and is quite efficient. However, an additional penalty model is required to penalize customers for submitting timestamps that fall outside the duration of the deal governed by the SLA. Furthermore, a deal cannot be terminated or expired if defects have been reported and accepted until the customer submits the reveal timestamps, which blocks processing.
 
-it is critical that note that for EVM-based blockchains, the final inclusion of transactions for a particular address, such as the C address, respects the nonce order. As long as the commitments, or raw timestamps are nonce'd properly and the blocks are finalized and any mis-ordering of commitments is an error attributable to C.
+Of course, astute observers are able to capture the block timestamp and calculate the commitment difference from the blockchain data and get a pretty good, but no necessarily accurate, picture of the customer's underlying data. For more enhanced privacy, the encryption model can be extended using zero-knowledge bulletproofs [],[]. In this scenario, the verifier provides a duration value to check against the unavailability range, triggering penalties as needed. Since bulletproofs utilize cryptographic commitments, such as the Pedersen commitment, they present a logical extension to the proposed model. More importantly, bulletproofs can be updated as the underlying Pedersen Commitments are updated. Hence, a customer submitting a new commitment would have to trigger a bulleproof update onchain.
 
+>[!Note]
+> Are Bulletproofs an actual implementation possibility? if so, i'm happy to add the code.
 
-
-
+Ultimately, the feasibility of any cryptographic approach depends on the capabilities and cost structure of the smart contract platform, i.e., Fluence's Arbitrum rollup, to support the necessary computations, curves and cryptographic primitives at the Wasm, contract, or precompiled levels.
 
 ### Submitting And Responding To Defect Reports
 
-### 
+One of the more critical aspects of implementing the dSLA protocol involves the customer reporting and the provider rejection response windows. A reasonable approach to handling provider responses is to make the response mechanism lazy. That is, if a provider does not respond to a defect report within a predefined period, the report is automatically considered accepted.
+
+Conversely, customers must report issues in a timely manner to ensure that providers have the opportunity to respond, as previously discussed.
+
+The specific parameters governing the defect duration, customer reporting frequency, and provider response window are influenced by factors such as the number of "nines" in service availability, blockchain performance, and gas costs. These parameters should be determined empirically, with the potential for dynamic adjustments based on the QoS guarantee of a specific, SLA-governed deal.
+
+## Summary
+
+TBD
 
 ## References
+
+TBD
 
 [] Inspection game, http://www.maths.lse.ac.uk/personal/stengel/TEXTE/insp.pdf
 
 [] Abrbitrum time, https://docs.arbitrum.io/build-decentralized-apps/arbitrum-vs-ethereum/block-numbers-and-time
 [] Arbitrum Stylus, https://arbitrum.io/stylus
 [] Uptime calculator, https://uptime.is/
+
+[1]: https://en.wikipedia.org/wiki/Service-level_agreement
+
+[2]: https://aws.amazon.com/legal/service-level-agreements/
+
+[3]: https://en.wikipedia.org/wiki/High_availability
+
+[4]: https://citeseerx.ist.psu.edu/document?doi=7fd596056e9d23e443f678934a78f891850dee9d&repid=rep1&type=pdf
+
+[5]: https://eudl.eu/pdf/10.1007/978-3-319-38904-2_11
+
+[6]:https://onlinelibrary.wiley.com/doi/full/10.1002/cpe.5511
+
+[7]: https://dl.acm.org/doi/pdf/10.5555/3491440.3492075
+
+[8]: https://en.wikipedia.org/wiki/Game_theory
+
+[9]: https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=7fd596056e9d23e443f678934a78f891850dee9d
+
+[10]: http://www.math.tau.ac.il/~lehrer/Papers/non-observable.pdf
+
+[11]: https://en.wikipedia.org/wiki/Incentive_compatibility
+
+[12]: https://www.chapman.edu/ESI/wp/Sheremeta_Side-PaymentsCostsofConflict.pdf
+
+[13]: https://rady.ucsd.edu/_files/faculty-research/uri-gneezy/incentives-and-cheating.pdf
+
+[14]: https://courses.lumenlearning.com/atd-sac-microeconomics/chapter/reading-game-theory/
+
+[] Bünz et al. Bulletproofs: https://web.stanford.edu/~buenz/pubs/bulletproofs.pdf
+[] MIT commitment schemes: https://assets.super.so/9c1ce0ba-bad4-4680-8c65-3a46532bf44a/files/61fb28e6-f2dc-420f-89e1-cc8000233a4f.pdf
+
+[] de Valence, github, ristetto bulltetproofs: https://github.com/dalek-cryptography/bulletproofs
+
+[] o1 labs commitments: https://o1-labs.github.io/proof-systems/fundamentals/zkbook_commitment.html
+
+[] tari bulletproofs: https://tlu.tarilabs.com/cryptography/the-bulletproof-protocols
 
 
