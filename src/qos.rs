@@ -1,6 +1,6 @@
 struct QoSCommitment {
     uptime: String, // nines
-    downtime_hours: f64,
+    downtime_seconds: u64,
     penalty_coefficient: f64,
 }
 
@@ -15,10 +15,10 @@ impl SLAHandler {
         }
     }
 
-    fn calculate_penalty(&self, reported_downtime: f64, deal_value: f64) -> f64 {
+    fn calculate_penalty(&self, reported_downtime: u64, deal_value: f64) -> f64 {
         self.penalty_ranges
             .iter()
-            .find(|range| reported_downtime > range.downtime_hours) // Find the first applicable range
+            .find(|range| reported_downtime > range.downtime_seconds) // Find the first applicable range
             .map(|range| range.penalty_coefficient.min(1.0) * deal_value) // Calculate penalty, capping coefficient at 1.0
             .unwrap_or(0.0) // No penalty if uptime is above all ranges
     }
@@ -32,17 +32,17 @@ mod tests {
         let qos_ranges = vec![
             QoSCommitment {
                 uptime: "95".to_string(),
-                downtime_hours: 22.24,
+                downtime_seconds: 80064, // 22.24 hours
                 penalty_coefficient: 1.0,
             },
             QoSCommitment {
                 uptime: "98.5".to_string(),
-                downtime_hours: 10.87,
+                downtime_seconds: 39132, // 10.87 hours
                 penalty_coefficient: 0.3,
             },
             QoSCommitment {
                 uptime: "99".to_string(),
-                downtime_hours: 7.24,
+                downtime_seconds: 26064, // 7.24 hours
                 penalty_coefficient: 0.1,
             }
         ];
@@ -52,23 +52,23 @@ mod tests {
 
         let deal_value = 10.0;
 
-        let reported_downtime = 7.24;
+        let reported_downtime = 26064;
         let penalty = sla_handler.calculate_penalty(reported_downtime, deal_value.clone());
         assert_eq!(penalty, 0.0);
 
-        let reported_downtime = 10.87;
+        let reported_downtime = 39132;
         let penalty = sla_handler.calculate_penalty(reported_downtime, deal_value.clone());
         assert_eq!(penalty, 1.0);
 
-        let reported_downtime = 10.88;
+        let reported_downtime = 39133;
         let penalty = sla_handler.calculate_penalty(reported_downtime, deal_value.clone());
         assert_eq!(penalty, 3.0);
 
-        let reported_downtime = 22.24;
+        let reported_downtime = 80064;
         let penalty: f64 = sla_handler.calculate_penalty(reported_downtime, deal_value.clone());
         assert_eq!(penalty, 3.0);
 
-        let reported_downtime = 22.25;
+        let reported_downtime = 80065;
         let penalty: f64 = sla_handler.calculate_penalty(reported_downtime, deal_value.clone());
         assert_eq!(penalty, 10.0);
     }
