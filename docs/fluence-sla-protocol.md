@@ -423,6 +423,8 @@ Encryption enhances data security and integrity, even when raw timestamps are st
 
 However, the use of encrypted timestamps introduces additional complexity in key management and decryption processes, complicating interactions with the smart contract. To alleviate such concerns, we propose to use a commitment scheme, such as the Pedersen Commitment [], which encrypts timestamps while allowing the calculation of timestamp deltas due to its inherent homomorphic properties. That is, a customer would have to create two commitments, one for the starting timestamp and one for the ending timestamp of the defect reporting period. Note that is is different than a vector commitment. See Figure 4.
 
+> [!Note]
+> Brute forcing the clear Scalar difference value takes a lot longer than expected. I'm sure there is a better modulus approach to be taken. However, instead of the outlined approach, a customer may just provide the duration value in the clear; we may also create a bulletproof over the commitments for a (tightly bounded range) or we may just use FHE, via the TFHE crate, assuming we can figure out the client-server key split ... or just let it go and go with plain timestamps. I have had doubts the the RaaS chains is going to be able to have enough processing power anyway. @Mike: to be discussed.
 
 Figue 4: Stylized Pedersen Commitment Interface
 

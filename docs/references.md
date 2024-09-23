@@ -25,3 +25,12 @@
 [13]: https://rady.ucsd.edu/_files/faculty-research/uri-gneezy/incentives-and-cheating.pdf
 
 [14]: https://courses.lumenlearning.com/atd-sac-microeconomics/chapter/reading-game-theory/
+
+[] Bünz et al. Bulletproofs: https://web.stanford.edu/~buenz/pubs/bulletproofs.pdf
+[] MIT commitment schemes: https://assets.super.so/9c1ce0ba-bad4-4680-8c65-3a46532bf44a/files/61fb28e6-f2dc-420f-89e1-cc8000233a4f.pdf
+
+[] de Valence, github, ristetto bulltetproofs: https://github.com/dalek-cryptography/bulletproofs
+
+[] o1 labs commitments: https://o1-labs.github.io/proof-systems/fundamentals/zkbook_commitment.html
+
+[] tari bulletproofs: https://tlu.tarilabs.com/cryptography/the-bulletproof-protocols
